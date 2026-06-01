@@ -2,9 +2,9 @@
 import os
 
 API_BASE = os.getenv("GAMEHUB_API", "http://localhost:8000/api/v1")
-STEAM_API_KEY = os.getenv("STEAM_API_KEY", "FAC419D6267E1A06BC3CC6B2BD35EE70")
-STEAM_ID = os.getenv("STEAM_ID", "76561198332527375")
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "sk-34d5bb04b1314bdc9e07ffddf2aee1ce")
+STEAM_API_KEY = os.getenv("STEAM_API_KEY", "")
+STEAM_ID = os.getenv("STEAM_ID", "")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 
 # Email push (QQ邮箱等)
 EMAIL_HOST = os.getenv("GAMEHUB_EMAIL_HOST", "")

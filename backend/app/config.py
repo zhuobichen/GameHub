@@ -3,10 +3,10 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql+asyncpg://gamehub:gamehub@localhost:5432/gamehub"
-    DATABASE_URL_SYNC: str = "postgresql://gamehub:gamehub@localhost:5432/gamehub"
+    DATABASE_URL: str = ""
+    DATABASE_URL_SYNC: str = ""
     REDIS_URL: str = "redis://localhost:6379/0"
-    SECRET_KEY: str = "dev-secret-key-change-in-prod"
+    SECRET_KEY: str = ""
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
 
     STEAM_API_KEY: str = ""
