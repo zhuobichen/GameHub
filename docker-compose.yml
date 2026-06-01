@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: gamehub
+      POSTGRES_PASSWORD: gamehub
+      POSTGRES_DB: gamehub
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gamehub"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+
+  api:
+    build: ./backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    environment:
+      DATABASE_URL: postgresql://gamehub:gamehub@db:5432/gamehub
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: dev-secret-key-change-in-prod
+      STEAM_API_KEY: ${STEAM_API_KEY:-}
+      RAWG_API_KEY: ${RAWG_API_KEY:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-worker:
+    build: ./backend
+    command: celery -A app.core.celery_app worker -l info
+    volumes:
+      - ./backend:/app
+    environment:
+      DATABASE_URL: postgresql://gamehub:gamehub@db:5432/gamehub
+      REDIS_URL: redis://redis:6379/0
+      STEAM_API_KEY: ${STEAM_API_KEY:-}
+      RAWG_API_KEY: ${RAWG_API_KEY:-}
+    depends_on:
+      - db
+      - redis
+
+  celery-beat:
+    build: ./backend
+    command: celery -A app.core.celery_app beat -l info
+    volumes:
+      - ./backend:/app
+    environment:
+      DATABASE_URL: postgresql://gamehub:gamehub@db:5432/gamehub
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+
+volumes:
+  pgdata:
