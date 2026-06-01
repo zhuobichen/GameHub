@@ -11,6 +11,7 @@ from app.schemas import SocialContentOut, AggregatedInsightOut
 from app.clients.youtube_client import YouTubeClient
 from app.clients.reddit_client import RedditClient
 from app.clients.hackernews_client import HackerNewsClient
+from app.clients.xiaoheihe_client import XiaoheiheClient
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ class SocialAggregatorService:
         self.youtube_client = YouTubeClient()
         self.reddit_client = RedditClient()
         self.hn_client = HackerNewsClient()
+        self.xiaoheihe_client = XiaoheiheClient()
         
     async def fetch_and_save_game_content(
         self,
@@ -49,6 +51,9 @@ class SocialAggregatorService:
         
         # Hacker News 搜索
         tasks.append(self._fetch_hackernews_content(queries, max_per_platform, days))
+        
+        # 小黑盒搜索 (国内热门游戏社区)
+        tasks.append(self._fetch_xiaoheihe_content(queries, max_per_platform, days))
         
         # 等待所有任务完成
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -129,6 +134,25 @@ class SocialAggregatorService:
             return all_stories
         except Exception as e:
             logger.error(f"Hacker News fetch error: {e}")
+            return []
+            
+    async def _fetch_xiaoheihe_content(
+        self,
+        queries: List[str],
+        max_results: int,
+        days: int,
+    ) -> List[Dict]:
+        """获取小黑盒内容 - 国内热门游戏社区"""
+        try:
+            all_posts = []
+            for query in queries[:2]:
+                # 使用游戏名称（如果有中文名称优先使用）
+                search_query = query
+                posts = await self.xiaoheihe_client.search_games(search_query, max_results // 2, days)
+                all_posts.extend(posts)
+            return all_posts
+        except Exception as e:
+            logger.error(f"Xiaoheihe fetch error: {e}")
             return []
             
     async def _save_content_data(

@@ -12,6 +12,10 @@ class PlatformType(str, Enum):
     HACKER_NEWS = "hacker_news"
     TIKTOK = "tiktok"
     TWITCH = "twitch"
+    XIAOHEIHE = "xiaoheihe"
+    NGA = "nga"
+    TAPTAP = "taptap"
+    BILIBILI = "bilibili"
 
 
 # ===== Game =====

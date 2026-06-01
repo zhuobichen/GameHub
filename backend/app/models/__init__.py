@@ -16,6 +16,10 @@ class PlatformType(str, enum.Enum):
     HACKER_NEWS = "hacker_news"
     TIKTOK = "tiktok"
     TWITCH = "twitch"
+    XIAOHEIHE = "xiaoheihe"
+    NGA = "nga"
+    TAPTAP = "taptap"
+    BILIBILI = "bilibili"
 
 
 class Game(Base):
