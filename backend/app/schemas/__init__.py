@@ -2,6 +2,16 @@
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
 from typing import Optional, List
+from enum import Enum
+
+
+class PlatformType(str, Enum):
+    YOUTUBE = "youtube"
+    REDDIT = "reddit"
+    TWITTER = "twitter"
+    HACKER_NEWS = "hacker_news"
+    TIKTOK = "tiktok"
+    TWITCH = "twitch"
 
 
 # ===== Game =====
@@ -41,6 +51,54 @@ class GameListOut(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ===== Social Content =====
+class SocialContentBase(BaseModel):
+    platform: PlatformType
+    content_id: str
+    title: Optional[str] = None
+    content: Optional[str] = None
+    url: Optional[str] = None
+    author: Optional[str] = None
+    author_url: Optional[str] = None
+    author_avatar: Optional[str] = None
+    views: int = 0
+    likes: int = 0
+    comments: int = 0
+    shares: int = 0
+    score: float = 0.0
+    thumbnail_url: Optional[str] = None
+    duration: Optional[int] = None
+    published_at: Optional[datetime] = None
+    metadata: Optional[dict] = None
+
+
+class SocialContentOut(SocialContentBase):
+    id: int
+    game_id: Optional[int] = None
+    fetched_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SocialContentListOut(BaseModel):
+    items: List[SocialContentOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class AggregatedInsightOut(BaseModel):
+    game_id: Optional[int] = None
+    game_name: Optional[str] = None
+    total_mentions: int
+    platform_breakdown: dict
+    top_posts: List[SocialContentOut]
+    sentiment_score: Optional[float] = None
+    trending_score: float
+    last_updated: datetime
 
 
 # ===== User =====

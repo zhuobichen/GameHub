@@ -105,6 +105,38 @@ async def _sync_steam_player_counts():
     logger.info(f"Player counts updated for {len(games)} games")
 
 
+async def _sync_social_content():
+    """同步社交媒体内容 - 多平台聚合"""
+    from sqlalchemy import select
+    from app.db.session import async_session
+    from app.models import Game
+    from app.services.social_aggregator import SocialAggregatorService
+
+    async with async_session() as db:
+        # 获取热门游戏进行社交内容同步
+        result = await db.execute(
+            select(Game)
+            .order_by(Game.current_players.desc().nullslast())
+            .limit(20)  # 每次只同步前20个热门游戏
+        )
+        games = result.scalars().all()
+
+        service = SocialAggregatorService(db)
+        total_contents = 0
+
+        for game in games:
+            try:
+                logger.info(f"Fetching social content for: {game.name}")
+                contents = await service.fetch_and_save_game_content(game, days=7)
+                total_contents += len(contents)
+                logger.info(f"  Saved {len(contents)} contents for {game.name}")
+            except Exception as e:
+                logger.error(f"Error fetching content for {game.name}: {e}")
+                continue
+
+    logger.info(f"Social content sync done: {total_contents} total contents")
+
+
 # ===== Celery Tasks =====
 
 @celery_app.task(name="sync_steam_games")
@@ -115,3 +147,9 @@ def sync_steam_games():
 @celery_app.task(name="sync_player_counts")
 def sync_player_counts():
     asyncio.run(_sync_steam_player_counts())
+
+
+@celery_app.task(name="sync_social_content")
+def sync_social_content():
+    """定时同步社交媒体内容"""
+    asyncio.run(_sync_social_content())

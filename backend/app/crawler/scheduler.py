@@ -13,4 +13,9 @@ celery_app.conf.beat_schedule = {
         "task": "sync_steam_games",
         "schedule": crontab(hour=2, minute=0),
     },
+    # 每 4 小时同步社交媒体内容
+    "sync-social-content-quarterly": {
+        "task": "sync_social_content",
+        "schedule": 14400.0,  # 4 小时 = 4 * 60 * 60 秒
+    },
 }

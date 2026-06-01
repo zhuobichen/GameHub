@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     STEAM_API_KEY: str = ""
     RAWG_API_KEY: str = ""
 
+    # Social Media APIs
+    YOUTUBE_API_KEY: str = ""
+    TWITTER_BEARER_TOKEN: str = ""
+    REDDIT_CLIENT_ID: str = ""
+    REDDIT_CLIENT_SECRET: str = ""
+    REDDIT_USER_AGENT: str = "GameHub/1.0"
+
     # Email
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587
