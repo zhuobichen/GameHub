@@ -10,159 +10,123 @@ logger = logging.getLogger(__name__)
 
 class XiaoheiheClient:
     BASE_URL = "https://api.xiaoheihe.cn"
-    
+
     def __init__(self):
         self.headers = {
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 xiaoheihe/5.0.0",
             "Accept": "application/json, text/plain, */*",
+            "Referer": "https://www.xiaoheihe.cn/",
         }
-    
+
     def calculate_score(self, likes: int, comments: int, views: int = 0, published_at: Optional[datetime] = None) -> float:
-        """计算小黑盒内容的评分 - 国内社区权重调整"""
         score = 0.0
-        
-        # 小黑盒用户互动权重
-        score += min(likes / 50, 12)  # 点赞权重较高
-        score += min(comments / 30, 8)  # 评论权重也高
+        score += min(likes / 50, 12)
+        score += min(comments / 30, 8)
         if views:
-            score += min(views / 5000, 5)  # 浏览量
-        
-        # 时间衰减
+            score += min(views / 5000, 5)
         if published_at:
             days_since = (datetime.utcnow() - published_at).days
-            decay_factor = max(0.15, 1.0 - (days_since / 21))  # 21天衰减
-            score *= decay_factor
-            
+            score *= max(0.15, 1.0 - (days_since / 21))
         return score
-    
+
     async def search_games(self, keyword: str, max_results: int = 20, days: int = 30) -> List[Dict]:
-        """搜索小黑盒游戏相关帖子"""
+        """搜索小黑盒游戏相关帖子 - 从首页获取后客户端过滤"""
         try:
-            # 使用小黑盒搜索 API
-            search_url = f"{self.BASE_URL}/bbs/web/search/result"
-            params = {
-                "q": keyword,
-                "type": "post",  # 搜索帖子
-                "limit": max_results,
-            }
-            
+            # 小黑盒首页推荐流 + 游戏社区流
+            endpoints = [
+                f"{self.BASE_URL}/bbs/web/home",
+                f"{self.BASE_URL}/v3/bbs/app/api/tag/list",
+            ]
+
+            all_posts = []
             async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.get(search_url, params=params, headers=self.headers)
-                if response.status_code == 200:
-                    data = response.json()
-                    return self._parse_posts(data, keyword, days)
-                    
-        except Exception as e:
-            logger.warning(f"Xiaoheihe API search failed: {e}")
-            # 尝试备用方法
-            return await self._fallback_search(keyword, max_results, days)
-        
-        return []
-    
-    async def _fallback_search(self, keyword: str, max_results: int = 20, days: int = 30) -> List[Dict]:
-        """备用搜索方法 - 直接抓取热门区"""
-        try:
-            hot_url = f"{self.BASE_URL}/bbs/web/official_recommend/get_list"
-            
-            async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.get(hot_url, headers=self.headers)
-                if response.status_code == 200:
-                    data = response.json()
-                    posts = self._parse_posts(data, keyword, days)
-                    # 过滤包含关键词的帖子
-                    filtered = [
-                        p for p in posts 
-                        if keyword.lower() in (p.get("title", "") + " " + p.get("content", "")).lower()
-                    ]
-                    return filtered[:max_results]
-                    
-        except Exception as e:
-            logger.error(f"Xiaoheihe fallback search error: {e}")
-        
-        return []
-    
-    def _parse_posts(self, data: Dict, keyword: str, days: int) -> List[Dict]:
-        """解析小黑盒帖子数据"""
-        results = []
-        
-        # 尝试多种数据结构
-        posts = []
-        if "result" in data and "posts" in data["result"]:
-            posts = data["result"]["posts"]
-        elif "data" in data and isinstance(data["data"], list):
-            posts = data["data"]
-        
-        for post in posts:
-            try:
-                # 提取帖子信息
-                post_id = str(post.get("post_id", post.get("id", "")))
-                if not post_id:
-                    continue
-                    
-                title = post.get("title", "")
-                content = post.get("content", "") or post.get("summary", "")
-                
-                # 时间解析
-                published_at = None
-                if post.get("create_time"):
+                for url in endpoints:
                     try:
-                        if isinstance(post["create_time"], str):
-                            published_at = datetime.fromisoformat(post["create_time"])
-                        else:
-                            published_at = datetime.fromtimestamp(post["create_time"])
-                    except:
-                        pass
-                
-                # 过滤时间范围
-                if published_at and days:
-                    days_since = (datetime.utcnow() - published_at).days
-                    if days_since > days:
+                        r = await client.get(url, headers=self.headers, timeout=10)
+                        if r.status_code == 200:
+                            data = r.json()
+                            posts = self._extract_posts(data, keyword, max_results, days)
+                            all_posts.extend(posts)
+                    except Exception as e:
+                        logger.debug(f"Xiaoheihe {url}: {e}")
                         continue
-                
-                # 互动数据
-                likes = post.get("like_count", post.get("likes", 0))
-                comments = post.get("comment_count", post.get("comments", 0))
-                views = post.get("view_count", post.get("views", 0))
-                
-                # 作者信息
-                author_info = post.get("user", {}) or post.get("author", {})
-                author = author_info.get("nickname", author_info.get("name", ""))
-                author_avatar = author_info.get("avatar", "")
-                
-                # 封面图
-                thumbnail = ""
-                if post.get("cover"):
-                    thumbnail = post["cover"]
-                elif post.get("images") and len(post["images"]) > 0:
-                    thumbnail = post["images"][0]
-                
-                score = self.calculate_score(likes, comments, views, published_at)
-                
-                results.append({
-                    "platform": PlatformType.XIAOHEIHE,
-                    "content_id": post_id,
-                    "title": title,
-                    "content": content,
-                    "url": f"https://api.xiaoheihe.cn/bbs/app/post/share?post_id={post_id}",
-                    "author": author,
-                    "author_url": "",
-                    "author_avatar": author_avatar,
-                    "views": views,
-                    "likes": likes,
-                    "comments": comments,
-                    "shares": 0,
-                    "score": score,
-                    "thumbnail_url": thumbnail,
-                    "duration": None,
-                    "published_at": published_at,
-                    "metadata": {
-                        "source": "xiaoheihe",
-                        "game_tag": post.get("game_name", ""),
-                    },
-                })
-                
-            except Exception as e:
-                logger.debug(f"Failed to parse Xiaoheihe post: {e}")
-                continue
-                
+
+            return all_posts[:max_results]
+        except Exception as e:
+            logger.error(f"Xiaoheihe search error: {e}")
+            return []
+
+    def _extract_posts(self, data: Dict, keyword: str, max_results: int, days: int) -> List[Dict]:
+        results = []
+        try:
+            keyword_lower = keyword.lower()
+
+            def walk(obj, depth=0):
+                if depth > 8 or len(results) >= max_results:
+                    return
+                if isinstance(obj, list):
+                    for item in obj:
+                        if isinstance(item, dict):
+                            walk(item, depth + 1)
+                elif isinstance(obj, dict):
+                    # Check if this looks like a post
+                    title = obj.get("title") or obj.get("topic") or obj.get("subject") or ""
+                    content = obj.get("content") or obj.get("summary") or obj.get("description") or ""
+                    title_lower = (title + " " + content).lower()
+
+                    if title and keyword_lower in title_lower:
+                        post_id = str(obj.get("post_id") or obj.get("id") or obj.get("topic_id") or hash(title))
+                        pub_time = obj.get("create_time") or obj.get("created_at") or obj.get("time")
+                        published_at = None
+                        if pub_time:
+                            try:
+                                if isinstance(pub_time, (int, float)):
+                                    published_at = datetime.fromtimestamp(pub_time)
+                                else:
+                                    published_at = datetime.fromisoformat(str(pub_time))
+                            except Exception:
+                                pass
+
+                        likes = obj.get("like_count") or obj.get("likes") or obj.get("like_num") or 0
+                        comments = obj.get("comment_count") or obj.get("comments") or obj.get("reply_count") or 0
+                        views = obj.get("view_count") or obj.get("views") or 0
+
+                        author_info = obj.get("user") or obj.get("author") or {}
+                        author = author_info.get("nickname") or author_info.get("name") or ""
+                        avatar = author_info.get("avatar") or author_info.get("avatar_url") or ""
+
+                        thumbnail = obj.get("cover") or obj.get("image") or ""
+                        if not thumbnail:
+                            imgs = obj.get("images") or []
+                            if imgs:
+                                thumbnail = imgs[0] if isinstance(imgs[0], str) else imgs[0].get("url", "")
+
+                        score = self.calculate_score(likes, comments, views, published_at)
+                        results.append({
+                            "platform": PlatformType.XIAOHEIHE,
+                            "content_id": post_id,
+                            "title": title,
+                            "content": content,
+                            "url": f"https://www.xiaoheihe.cn/app/bbs/post/{post_id}",
+                            "author": author,
+                            "author_url": "",
+                            "author_avatar": avatar,
+                            "views": views,
+                            "likes": likes,
+                            "comments": comments,
+                            "shares": 0,
+                            "score": score,
+                            "thumbnail_url": thumbnail,
+                            "duration": None,
+                            "published_at": published_at,
+                            "metadata": {"source": "xiaoheihe"},
+                        })
+
+                    # Continue walking
+                    for k, v in obj.items():
+                        walk(v, depth + 1)
+
+            walk(data)
+        except Exception as e:
+            logger.error(f"Xiaoheihe extract error: {e}")
         return results

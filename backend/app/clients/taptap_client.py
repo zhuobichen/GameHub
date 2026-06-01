@@ -10,209 +10,129 @@ logger = logging.getLogger(__name__)
 
 class TapTapClient:
     BASE_URL = "https://www.taptap.cn"
-    API_BASE = "https://api.taptap.cn"
-    
+
     def __init__(self):
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
-            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9",
         }
-    
-    def calculate_score(self, likes: int, replies: int, views: int = 0, published_at: Optional[datetime] = None) -> float:
-        """计算 TapTap 内容评分 - 手游社区权重"""
+
+    def calculate_score(self, likes: int = 0, replies: int = 0, views: int = 0, published_at: Optional[datetime] = None) -> float:
         score = 0.0
-        
-        # TapTap 点赞和回复权重
         score += min(likes / 100, 12)
         score += min(replies / 50, 10)
         if views:
             score += min(views / 10000, 5)
-        
-        # 时间衰减
         if published_at:
             days_since = (datetime.utcnow() - published_at).days
-            decay_factor = max(0.15, 1.0 - (days_since / 21))
-            score *= decay_factor
-            
+            score *= max(0.15, 1.0 - (days_since / 21))
         return score
-    
+
     async def search_games(self, keyword: str, max_results: int = 20, days: int = 30) -> List[Dict]:
-        """搜索 TapTap 游戏相关内容"""
+        """搜索 TapTap 游戏相关内容 - 使用网页搜索"""
         try:
-            # 使用 TapTap 搜索 API
-            search_url = f"{self.API_BASE}/search"
-            params = {
-                "q": keyword,
-                "type": "topic",  # 话题/帖子
-                "limit": max_results,
-            }
-            
-            async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.get(search_url, params=params, headers=self.headers)
-                if response.status_code == 200:
-                    data = response.json()
-                    return self._parse_posts(data, keyword, days)
-                    
+            search_url = f"{self.BASE_URL}/search/{keyword.replace(' ', '+')}"
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+                r = await client.get(search_url, headers=self.headers)
+                if r.status_code != 200:
+                    logger.warning(f"TapTap search returned {r.status_code}")
+                    return []
+                return self._parse_search_page(r.text, keyword, max_results, days)
         except Exception as e:
-            logger.warning(f"TapTap API search failed: {e}")
-            return await self._fallback_search(keyword, max_results, days)
-        
-        return []
-    
-    async def _fallback_search(self, keyword: str, max_results: int = 20, days: int = 30) -> List[Dict]:
-        """备用搜索 - 直接访问热门游戏社区"""
-        try:
-            # 先搜索游戏再获取相关帖子
-            game_search_url = f"{self.BASE_URL}/search"
-            params = {"q": keyword}
-            
-            async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.get(game_search_url, params=params, headers=self.headers)
-                if response.status_code == 200:
-                    return self._extract_posts_from_page(response.text, keyword, days)
-                    
-        except Exception as e:
-            logger.error(f"TapTap fallback search error: {e}")
+            logger.error(f"TapTap search error: {e}")
             return []
-    
-    def _parse_posts(self, data: Dict, keyword: str, days: int) -> List[Dict]:
-        """解析 TapTap 帖子数据"""
+
+    def _parse_search_page(self, html: str, keyword: str, max_results: int, days: int) -> List[Dict]:
         results = []
-        
-        try:
-            posts = []
-            if "data" in data and isinstance(data["data"]):
-                if isinstance(data["data"], list):
-                    posts = data["data"]
-                elif isinstance(data["data"], dict) and "list" in data["data"]:
-                    posts = data["data"]["list"]
-            
-            for post in posts:
-                try:
-                    post_id = str(post.get("id", ""))
-                    if not post_id:
-                        continue
-                        
-                    title = post.get("title", "")
-                    content = post.get("summary", "") or post.get("content", "")
-                    
-                    # 检查是否包含关键词
-                    if keyword.lower() not in (title + content).lower():
-                        continue
-                    
-                    published_at = None
-                    if post.get("created_at"):
-                        try:
-                            if isinstance(post["created_at"], str):
-                                published_at = datetime.fromisoformat(post["created_at"])
-                            elif isinstance(post["created_at"], int):
-                                published_at = datetime.fromtimestamp(post["created_at"])
-                        except:
-                            pass
-                    
-                    # 过滤时间范围
-                    if published_at and days:
-                        days_since = (datetime.utcnow() - published_at).days
-                        if days_since > days:
-                            continue
-                    
-                    # 互动数据
-                    likes = post.get("likes", 0)
-                    replies = post.get("replies", 0)
-                    views = post.get("views", 0)
-                    
-                    # 作者信息
-                    author_info = post.get("author", {}) or post.get("user", {})
-                    author = author_info.get("name", "") or author_info.get("nickname", "")
-                    author_avatar = author_info.get("avatar", "")
-                    
-                    # 封面图
-                    thumbnail = ""
-                    if post.get("images") and len(post["images"]) > 0:
-                        thumbnail = post["images"][0]
-                    elif post.get("image"):
-                        thumbnail = post["image"]
-                    
-                    score = self.calculate_score(likes, replies, views, published_at)
-                    
-                    results.append({
-                        "platform": PlatformType.TAPTAP,
-                        "content_id": post_id,
-                        "title": title,
-                        "content": content,
-                        "url": f"{self.BASE_URL}/post/{post_id}",
-                        "author": author,
-                        "author_url": "",
-                        "author_avatar": author_avatar,
-                        "views": views,
-                        "likes": likes,
-                        "comments": replies,
-                        "shares": 0,
-                        "score": score,
-                        "thumbnail_url": thumbnail,
-                        "duration": None,
-                        "published_at": published_at,
-                        "metadata": {
-                            "source": "taptap",
-                            "type": post.get("type", "post"),
-                        },
-                    })
-                    
-                except Exception as e:
-                    logger.debug(f"Failed to parse TapTap post: {e}")
-                    continue
-                    
-        except Exception as e:
-            logger.error(f"Error parsing TapTap data: {e}")
-            
-        return results
-    
-    def _extract_posts_from_page(self, html: str, keyword: str, days: int) -> List[Dict]:
-        """从 HTML 页面提取帖子（备用方案）"""
-        results = []
-        
         try:
             from bs4 import BeautifulSoup
+            import re
+            import json
+
             soup = BeautifulSoup(html, "html.parser")
-            
-            # 查找帖子卡片
-            post_cards = soup.find_all("div", class_=lambda x: x and ("post" in x.lower()))
-            
-            for card in post_cards[:20]:
-                try:
-                    title_elem = card.find("h3") or card.find("h2") or card.find(class_=lambda x: x and "title" in x.lower())
-                    if not title_elem:
-                        continue
-                        
-                    title = title_elem.get_text(strip=True)
-                    if keyword.lower() not in title.lower():
-                        continue
-                    
-                    results.append({
-                        "platform": PlatformType.TAPTAP,
-                        "content_id": str(hash(title)),
-                        "title": title,
-                        "content": "",
-                        "url": self.BASE_URL,
-                        "author": "",
-                        "author_url": "",
-                        "author_avatar": "",
-                        "views": 0,
-                        "likes": 0,
-                        "comments": 0,
-                        "shares": 0,
-                        "score": 2.0,
-                        "thumbnail_url": "",
-                        "duration": None,
-                        "published_at": None,
-                        "metadata": {"source": "taptap-fallback"},
-                    })
-                    
-                except Exception as e:
-                    logger.debug(f"Failed to extract TapTap post from HTML: {e}")
-                    continue
-                    
+
+            # Try to extract JSON-LD / __NEXT_DATA__ first
+            for script in soup.find_all("script"):
+                text = script.string or ""
+                if "__NEXT_DATA__" in text or '"props"' in text:
+                    try:
+                        data = json.loads(text)
+                        # Walk nested data to find game list
+                        def walk(obj, depth=0):
+                            if depth > 10 or isinstance(obj, (str, int, float, bool)):
+                                return
+                            if isinstance(obj, list):
+                                for item in obj[:max_results]:
+                                    if isinstance(item, dict):
+                                        name = item.get("name") or item.get("title") or ""
+                                        if name and keyword.lower() in name.lower():
+                                            results.append(self._make_result(item, keyword))
+                                return
+                            if isinstance(obj, dict):
+                                for k in ("list", "apps", "games", "results", "items"):
+                                    if k in obj and isinstance(obj[k], list):
+                                        walk(obj[k], depth + 1)
+                                        if results:
+                                            return
+                                walk(obj, depth + 1)
+                        walk(data)
+                    except (json.JSONDecodeError, AttributeError):
+                        pass
+
+            # Fallback: parse game cards from HTML
+            if not results:
+                cards = soup.find_all("a", href=re.compile(r"/app/\d+"))
+                seen = set()
+                for card in cards[:max_results]:
+                    name = card.get_text(strip=True)
+                    href = card.get("href", "")
+                    if name and name not in seen and len(name) > 1:
+                        seen.add(name)
+                        results.append({
+                            "platform": PlatformType.TAPTAP,
+                            "content_id": str(hash(href)),
+                            "title": name,
+                            "content": "",
+                            "url": f"{self.BASE_URL}{href}" if href.startswith("/") else href,
+                            "author": "",
+                            "author_url": "",
+                            "author_avatar": "",
+                            "views": 0,
+                            "likes": 0,
+                            "comments": 0,
+                            "shares": 0,
+                            "score": 3.0,
+                            "thumbnail_url": "",
+                            "duration": None,
+                            "published_at": None,
+                            "metadata": {"source": "taptap"},
+                        })
+        except ImportError:
+            logger.warning("BeautifulSoup not available for TapTap")
         except Exception as e:
-            logger.error(f"Error parsing TapTap HTML: {e}")
-            
-        return results
+            logger.error(f"TapTap parse error: {e}")
+        return results[:max_results]
+
+    def _make_result(self, item: dict, keyword: str) -> Dict:
+        name = item.get("name") or item.get("title") or keyword
+        app_id = item.get("id", "")
+        return {
+            "platform": PlatformType.TAPTAP,
+            "content_id": str(app_id),
+            "title": name,
+            "content": item.get("description") or item.get("summary", ""),
+            "url": f"{self.BASE_URL}/app/{app_id}" if app_id else self.BASE_URL,
+            "author": item.get("developer", ""),
+            "author_url": "",
+            "author_avatar": item.get("icon", ""),
+            "views": 0,
+            "likes": item.get("likes", 0),
+            "comments": item.get("comments", 0),
+            "shares": 0,
+            "score": self.calculate_score(item.get("likes", 0), item.get("comments", 0)),
+            "thumbnail_url": item.get("icon", "") or item.get("cover", ""),
+            "duration": None,
+            "published_at": None,
+            "metadata": {"source": "taptap", "rating": item.get("rating", 0)},
+        }
