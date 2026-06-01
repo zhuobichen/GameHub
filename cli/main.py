@@ -236,6 +236,50 @@ def profile():
 
 
 @cli.command()
+def digest():
+    """Generate daily news digest (based on your profile)"""
+    from notifier import generate_daily_digest
+    console.print("[cyan]Generating daily digest...[/cyan]")
+    md = generate_daily_digest()
+    console.print(Markdown(md))
+
+    # Save to file
+    from datetime import datetime
+    import os
+    save_dir = os.path.expanduser("~/.gamehub")
+    os.makedirs(save_dir, exist_ok=True)
+    today = datetime.now().strftime("%Y%m%d")
+    save_path = os.path.join(save_dir, f"digest-{today}.md")
+    with open(save_path, "w", encoding="utf-8") as f:
+        f.write(md)
+    console.print(f"[dim]Saved to {save_path}[/dim]")
+
+
+@cli.command()
+def push():
+    """Push daily digest via email"""
+    from notifier import generate_daily_digest
+    from config import EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASSWORD, EMAIL_TO
+    if not EMAIL_TO:
+        console.print("[red]请设置 GAMEHUB_EMAIL_TO 环境变量[/red]")
+        console.print("[dim]例如: set GAMEHUB_EMAIL_TO=your@email.com[/dim]")
+        return
+    console.print(f"[cyan]Pushing digest to {EMAIL_TO}...[/cyan]")
+    result = generate_daily_digest(
+        to_email=EMAIL_TO,
+        smtp_host=EMAIL_HOST,
+        smtp_port=EMAIL_PORT,
+        smtp_user=EMAIL_USER,
+        smtp_password=EMAIL_PASSWORD,
+        from_email=EMAIL_USER,
+    )
+    if "已推送到" in result:
+        console.print(f"[green]Digest pushed to {EMAIL_TO}[/green]")
+    else:
+        console.print("[yellow]Digest generated but email not sent (check SMTP config)[/yellow]")
+
+
+@cli.command()
 def news():
     """Real-time Steam news from your library"""
     console.print("[cyan]Fetching real-time Steam news...[/cyan]")

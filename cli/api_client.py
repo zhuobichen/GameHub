@@ -36,17 +36,26 @@ async def get_library() -> dict:
 # ===== Direct Steam API (不依赖后端) =====
 
 async def fetch_steam_library() -> list:
-    """直接从 Steam API 获取游戏库"""
-    async with httpx.AsyncClient(timeout=30) as c:
-        r = await c.get("https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/", params={
-            "key": STEAM_API_KEY,
-            "steamid": STEAM_ID,
-            "include_appinfo": 1,
-            "include_played_free_games": 1,
-            "format": "json",
-        })
-        data = r.json()
-        return data.get("response", {}).get("games", [])
+    """直接从 Steam API 获取游戏库（带重试）"""
+    import asyncio as _asyncio
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=30) as c:
+                r = await c.get("https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/", params={
+                    "key": STEAM_API_KEY,
+                    "steamid": STEAM_ID,
+                    "include_appinfo": 1,
+                    "include_played_free_games": 1,
+                    "format": "json",
+                })
+                data = r.json()
+                games = data.get("response", {}).get("games", [])
+                if games:
+                    return games
+        except Exception:
+            if attempt < 2:
+                await _asyncio.sleep(2)
+    return []
 
 
 async def fetch_game_details(app_id: int) -> dict | None:
