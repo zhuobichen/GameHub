@@ -150,6 +150,92 @@ def analyze():
 
 
 @cli.command()
+def profile():
+    """Show your gaming profile (auto-generated from Steam)"""
+    from collections import Counter
+    console.print("[cyan]Building your gamer profile...[/cyan]")
+    games = asyncio.run(fetch_steam_library())
+    if not games:
+        console.print("[red]Failed to fetch Steam library[/red]")
+        return
+
+    import httpx
+    games.sort(key=lambda g: g.get("playtime_forever", 0), reverse=True)
+
+    total = len(games)
+    total_h = sum(g["playtime_forever"] for g in games) / 60
+    recent_h = sum(g.get("playtime_2weeks", 0) for g in games) / 60
+    avg_h = total_h / total if total else 0
+
+    # Fetch genres for top games
+    all_genres = Counter()
+    top_games = []
+
+    async def _fetch():
+        async with httpx.AsyncClient(timeout=30) as c:
+            for g in games[:20]:
+                try:
+                    r = await c.get("https://store.steampowered.com/api/appdetails",
+                        params={"appids": g["appid"], "l": "schinese", "cc": "CN"})
+                    d = r.json().get(str(g["appid"]), {})
+                    if d.get("success"):
+                        data = d["data"]
+                        hours = g["playtime_forever"] / 60
+                        genres = [x["description"] for x in data.get("genres", [])]
+                        for genre in genres:
+                            all_genres[genre] += hours
+                        top_games.append({"name": data["name"], "hours": int(hours), "genres": genres})
+                except:
+                    pass
+
+    asyncio.run(_fetch())
+
+    # Build profile panels
+    from rich.panel import Panel
+    from rich.table import Table
+
+    # Basic stats
+    console.print(Panel(
+        f"[bold]Gamer Profile[/bold]\n"
+        f"Games: {total} | Total: {int(total_h)}h | Recent: {recent_h:.1f}h | Avg: {avg_h:.1f}h/game",
+        border_style="cyan"))
+
+    # Genre affinity (by playtime)
+    genre_table = Table(title="Genre Affinity (weighted by playtime)", show_header=True)
+    genre_table.add_column("Genre", style="green")
+    genre_table.add_column("Hours", justify="right", style="yellow")
+    genre_table.add_column("Bar", style="cyan")
+    max_h = all_genres.most_common(1)[0][1] if all_genres else 1
+    for genre, hours in all_genres.most_common(8):
+        bar = "=" * int(hours / max_h * 20)
+        genre_table.add_row(genre, f"{int(hours)}h", bar)
+    console.print(genre_table)
+
+    # Play pattern
+    ranges = {"0-10h": 0, "10-30h": 0, "30-60h": 0, "60-100h": 0, "100h+": 0}
+    for g in games:
+        h = g["playtime_forever"] / 60
+        if h < 10: ranges["0-10h"] += 1
+        elif h < 30: ranges["10-30h"] += 1
+        elif h < 60: ranges["30-60h"] += 1
+        elif h < 100: ranges["60-100h"] += 1
+        else: ranges["100h+"] += 1
+
+    pattern_text = "  ".join(f"[bold]{v}[/bold] {k}" for k, v in ranges.items())
+    console.print(Panel(pattern_text, title="Play Time Distribution", border_style="yellow"))
+
+    # Top games
+    game_table = Table(title="Top Games", show_header=True)
+    game_table.add_column("#", style="dim", width=3)
+    game_table.add_column("Game", style="white")
+    game_table.add_column("Hours", justify="right", style="yellow")
+    game_table.add_column("Genres", style="green")
+    for i, g in enumerate(top_games[:10], 1):
+        game_table.add_row(str(i), g["name"][:30], str(g["hours"]), ", ".join(g["genres"][:3]))
+    console.print(game_table)
+
+
+@cli.command()
 def news():
     """Real-time Steam news from your library"""
     console.print("[cyan]Fetching real-time Steam news...[/cyan]")

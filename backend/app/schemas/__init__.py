@@ -168,3 +168,32 @@ class SearchOut(BaseModel):
 class RecommendationOut(BaseModel):
     games: List[GameOut]
     based_on: list = []
+
+
+# ===== User Profile =====
+class UserProfileOut(BaseModel):
+    id: int
+    user_id: int
+    total_games: int = 0
+    total_hours: float = 0
+    recent_2weeks_h: float = 0
+    avg_playtime: float = 0
+    top_genres: Optional[list] = None
+    play_style: Optional[list] = None
+    activity_pattern: Optional[str] = None
+    favorite_genres: Optional[list] = None
+    favorite_tags: Optional[list] = None
+    excluded_genres: Optional[list] = None
+    notes: Optional[str] = None
+    last_synced_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class UserProfileUpdate(BaseModel):
+    """用户手动注入的偏好"""
+    favorite_genres: Optional[list] = None
+    favorite_tags: Optional[list] = None
+    excluded_genres: Optional[list] = None
+    notes: Optional[str] = None

@@ -1,25 +1,12 @@
 """SQLAlchemy 数据模型"""
-import enum
 from datetime import datetime
-from sqlalchemy import String, Integer, Float, Boolean, DateTime, Text, ForeignKey, Enum, Index, BigInteger
+from sqlalchemy import String, Integer, Float, Boolean, DateTime, Text, ForeignKey, Index, Enum
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import Optional, List
 
 from app.db.session import Base
-
-
-class PlatformType(str, enum.Enum):
-    YOUTUBE = "youtube"
-    REDDIT = "reddit"
-    TWITTER = "twitter"
-    HACKER_NEWS = "hacker_news"
-    TIKTOK = "tiktok"
-    TWITCH = "twitch"
-    XIAOHEIHE = "xiaoheihe"
-    NGA = "nga"
-    TAPTAP = "taptap"
-    BILIBILI = "bilibili"
+from app.schemas import PlatformType
 
 
 class Game(Base):
@@ -30,13 +17,13 @@ class Game(Base):
     name_cn: Mapped[Optional[str]] = mapped_column(String(255))
     description: Mapped[Optional[str]] = mapped_column(Text)
 
-    steam_app_id: Mapped[Optional[int]] = mapped_column(BigInteger, unique=True)
+    steam_app_id: Mapped[Optional[int]] = mapped_column(Integer, unique=True)
     rawg_id: Mapped[Optional[int]]
 
     release_date: Mapped[Optional[datetime]]
-    platforms: Mapped[Optional[dict]] = mapped_column(JSONB)    # ["pc","ps5"]
-    genres: Mapped[Optional[dict]] = mapped_column(JSONB)       # ["RPG","Action"]
-    tags: Mapped[Optional[dict]] = mapped_column(JSONB)         # ["open-world","multiplayer"]
+    platforms: Mapped[Optional[dict]] = mapped_column(JSONB)
+    genres: Mapped[Optional[dict]] = mapped_column(JSONB)
+    tags: Mapped[Optional[dict]] = mapped_column(JSONB)
 
     developers: Mapped[Optional[dict]] = mapped_column(JSONB)
     publishers: Mapped[Optional[dict]] = mapped_column(JSONB)
@@ -56,10 +43,8 @@ class Game(Base):
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # full-text search
     search_vector = mapped_column(TSVECTOR)
 
-    # Relationships
     social_contents: Mapped[List["SocialContent"]] = relationship(back_populates="game")
 
     __table_args__ = (
@@ -72,47 +57,40 @@ class Game(Base):
 
 
 class SocialContent(Base):
-    """社交媒体内容模型"""
     __tablename__ = "social_contents"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     game_id: Mapped[Optional[int]] = mapped_column(ForeignKey("games.id", ondelete="CASCADE"))
-    
+
     platform: Mapped[PlatformType] = mapped_column(String(50))
-    content_id: Mapped[str] = mapped_column(String(255), unique=True)  # 平台原生ID
-    
+    content_id: Mapped[str] = mapped_column(String(255), unique=True)
+
     title: Mapped[Optional[str]] = mapped_column(String(500))
     content: Mapped[Optional[str]] = mapped_column(Text)
     url: Mapped[Optional[str]] = mapped_column(String(500))
-    
+
     author: Mapped[Optional[str]] = mapped_column(String(255))
     author_url: Mapped[Optional[str]] = mapped_column(String(500))
     author_avatar: Mapped[Optional[str]] = mapped_column(String(500))
-    
-    # 互动指标
+
     views: Mapped[int] = mapped_column(default=0)
     likes: Mapped[int] = mapped_column(default=0)
     comments: Mapped[int] = mapped_column(default=0)
     shares: Mapped[int] = mapped_column(default=0)
-    score: Mapped[float] = mapped_column(Float, default=0.0)  # 综合评分
-    
+    score: Mapped[float] = mapped_column(Float, default=0.0)
+
     thumbnail_url: Mapped[Optional[str]] = mapped_column(String(500))
-    duration: Mapped[Optional[int]]  # 视频时长（秒）
-    
+    duration: Mapped[Optional[str]] = mapped_column(String(50))
     published_at: Mapped[Optional[datetime]]
     fetched_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-    
-    # 额外元数据
-    metadata: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
-    
-    # 关系
-    game: Mapped[Optional[Game]] = relationship(back_populates="social_contents")
-    
+    metadata: Mapped[Optional[dict]] = mapped_column(JSONB)
+
+    game: Mapped["Game"] = relationship(back_populates="social_contents")
+
     __table_args__ = (
-        Index("ix_social_contents_game_id", "game_id"),
-        Index("ix_social_contents_platform", "platform"),
-        Index("ix_social_contents_published_at", "published_at"),
-        Index("ix_social_contents_score", "score"),
+        Index("ix_social_game_id", "game_id"),
+        Index("ix_social_platform", "platform"),
+        Index("ix_social_published_at", "published_at"),
     )
 
 
@@ -134,6 +112,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
 
     user_games: Mapped[List["UserGame"]] = relationship(back_populates="user")
+    profile: Mapped[Optional["UserProfile"]] = relationship(back_populates="user", uselist=False)
 
 
 class UserGame(Base):
@@ -145,10 +124,7 @@ class UserGame(Base):
 
     playtime_forever: Mapped[int] = mapped_column(default=0)
     playtime_2weeks: Mapped[int] = mapped_column(default=0)
-
     is_wishlisted: Mapped[bool] = mapped_column(default=False)
-    is_following: Mapped[bool] = mapped_column(default=False)
-
     synced_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
 
     user: Mapped["User"] = relationship(back_populates="user_games")
@@ -175,9 +151,40 @@ class Notification(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    type: Mapped[str] = mapped_column(String(50))  # 'release', 'price_drop', 'recommendation'
+    type: Mapped[str] = mapped_column(String(50))
     title: Mapped[str] = mapped_column(String(255))
     content: Mapped[Optional[str]] = mapped_column(Text)
     related_game_id: Mapped[Optional[int]] = mapped_column(ForeignKey("games.id"))
     is_read: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+
+
+class UserProfile(Base):
+    """用户画像 - 系统自动生成 + 用户手动注入"""
+    __tablename__ = "user_profiles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True)
+
+    # 基础统计 (系统从 Steam 自动生成)
+    total_games: Mapped[int] = mapped_column(default=0)
+    total_hours: Mapped[float] = mapped_column(default=0)
+    recent_2weeks_h: Mapped[float] = mapped_column(default=0)
+    avg_playtime: Mapped[float] = mapped_column(default=0)
+
+    # 偏好分析 (系统生成)
+    top_genres: Mapped[Optional[dict]] = mapped_column(JSONB)
+    play_style: Mapped[Optional[dict]] = mapped_column(JSONB)
+    activity_pattern: Mapped[Optional[str]] = mapped_column(String(100))
+
+    # 用户手动注入
+    favorite_genres: Mapped[Optional[dict]] = mapped_column(JSONB)
+    favorite_tags: Mapped[Optional[dict]] = mapped_column(JSONB)
+    excluded_genres: Mapped[Optional[dict]] = mapped_column(JSONB)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    last_synced_at: Mapped[Optional[datetime]]
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user: Mapped["User"] = relationship(back_populates="profile")
