@@ -12,6 +12,9 @@ from app.clients.youtube_client import YouTubeClient
 from app.clients.reddit_client import RedditClient
 from app.clients.hackernews_client import HackerNewsClient
 from app.clients.xiaoheihe_client import XiaoheiheClient
+from app.clients.nga_client import NGAClient
+from app.clients.taptap_client import TapTapClient
+from app.clients.bilibili_client import BilibiliClient
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +26,9 @@ class SocialAggregatorService:
         self.reddit_client = RedditClient()
         self.hn_client = HackerNewsClient()
         self.xiaoheihe_client = XiaoheiheClient()
+        self.nga_client = NGAClient()
+        self.taptap_client = TapTapClient()
+        self.bilibili_client = BilibiliClient()
         
     async def fetch_and_save_game_content(
         self,
@@ -54,6 +60,15 @@ class SocialAggregatorService:
         
         # 小黑盒搜索 (国内热门游戏社区)
         tasks.append(self._fetch_xiaoheihe_content(queries, max_per_platform, days))
+        
+        # NGA 搜索 (国内资深游戏论坛)
+        tasks.append(self._fetch_nga_content(queries, max_per_platform, days))
+        
+        # TapTap 搜索 (国内手游社区)
+        tasks.append(self._fetch_taptap_content(queries, max_per_platform, days))
+        
+        # B站 搜索 (国内最大视频社区)
+        tasks.append(self._fetch_bilibili_content(queries, max_per_platform, days))
         
         # 等待所有任务完成
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -153,6 +168,57 @@ class SocialAggregatorService:
             return all_posts
         except Exception as e:
             logger.error(f"Xiaoheihe fetch error: {e}")
+            return []
+            
+    async def _fetch_nga_content(
+        self,
+        queries: List[str],
+        max_results: int,
+        days: int,
+    ) -> List[Dict]:
+        """获取 NGA 内容 - 国内资深游戏论坛"""
+        try:
+            all_posts = []
+            for query in queries[:2]:
+                posts = await self.nga_client.search_games(query, max_results // 2, days)
+                all_posts.extend(posts)
+            return all_posts
+        except Exception as e:
+            logger.error(f"NGA fetch error: {e}")
+            return []
+            
+    async def _fetch_taptap_content(
+        self,
+        queries: List[str],
+        max_results: int,
+        days: int,
+    ) -> List[Dict]:
+        """获取 TapTap 内容 - 国内手游社区"""
+        try:
+            all_posts = []
+            for query in queries[:2]:
+                posts = await self.taptap_client.search_games(query, max_results // 2, days)
+                all_posts.extend(posts)
+            return all_posts
+        except Exception as e:
+            logger.error(f"TapTap fetch error: {e}")
+            return []
+            
+    async def _fetch_bilibili_content(
+        self,
+        queries: List[str],
+        max_results: int,
+        days: int,
+    ) -> List[Dict]:
+        """获取 B站 内容 - 国内最大视频社区"""
+        try:
+            all_videos = []
+            for query in queries[:2]:
+                videos = await self.bilibili_client.search_games(query, max_results // 2, days)
+                all_videos.extend(videos)
+            return all_videos
+        except Exception as e:
+            logger.error(f"Bilibili fetch error: {e}")
             return []
             
     async def _save_content_data(
