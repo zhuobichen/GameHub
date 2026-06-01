@@ -58,3 +58,45 @@ async def fetch_game_details(app_id: int) -> dict | None:
         data = r.json()
         app = data.get(str(app_id), {})
         return app["data"] if app.get("success") else None
+
+
+async def fetch_game_news(app_id: int, count: int = 5) -> list:
+    """获取单个游戏的 Steam 新闻"""
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.get("https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/", params={
+            "appid": app_id, "count": count, "maxlength": 300, "format": "json",
+        })
+        data = r.json()
+        return data.get("appnews", {}).get("newsitems", [])
+
+
+async def fetch_realtime_news(library_games: list, top_n: int = 10) -> list:
+    """从用户库里时长最长的游戏中抓取 Steam 实时新闻"""
+    # 按时长排序，取 top_n 个有 steam appid 的游戏
+    sorted_games = sorted(library_games, key=lambda g: g.get("playtime_forever", 0), reverse=True)
+
+    all_news = []
+    seen_urls = set()
+
+    async with httpx.AsyncClient(timeout=30) as c:
+        for g in sorted_games[:top_n]:
+            app_id = g.get("appid")
+            if not app_id:
+                continue
+            try:
+                r = await c.get("https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/", params={
+                    "appid": app_id, "count": 3, "maxlength": 200, "format": "json",
+                })
+                items = r.json().get("appnews", {}).get("newsitems", [])
+                for item in items:
+                    if item.get("url") not in seen_urls:
+                        seen_urls.add(item["url"])
+                        item["_game_name"] = g.get("name", f"App {app_id}")
+                        item["_playtime_h"] = int(g.get("playtime_forever", 0) / 60)
+                        all_news.append(item)
+            except Exception:
+                continue
+
+    # 按时间排序（新的在前）
+    all_news.sort(key=lambda n: n.get("date", 0), reverse=True)
+    return all_news[:30]

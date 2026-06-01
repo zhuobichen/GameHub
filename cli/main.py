@@ -14,7 +14,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.markdown import Markdown
 
-from api_client import search_games, get_upcoming, get_recommendations, fetch_steam_library
+from api_client import search_games, get_upcoming, get_recommendations, fetch_steam_library, fetch_realtime_news
 
 console = Console()
 
@@ -151,16 +151,52 @@ def analyze():
 
 @cli.command()
 def news():
-    """AI news recommendations"""
-    from ai_agent import recommend_news
-    console.print("[cyan]AI searching for relevant news...[/cyan]")
+    """Real-time Steam news from your library"""
+    console.print("[cyan]Fetching real-time Steam news...[/cyan]")
     games = asyncio.run(fetch_steam_library())
     if not games:
         console.print("[red]Failed to fetch Steam library[/red]")
         return
-    lib = [{"name": g.get("name", ""), "playtime_forever": g.get("playtime_forever", 0)} for g in games]
-    response = recommend_news(lib, {})
-    console.print(Panel(Markdown(response), title="News", border_style="magenta"))
+
+    news_items = asyncio.run(fetch_realtime_news(games, top_n=15))
+
+    if not news_items:
+        console.print("[yellow]No news found[/yellow]")
+        return
+
+    # Build table
+    table = Table(title="Steam News (Real-time from your library)", show_header=True, header_style="bold cyan")
+    table.add_column("Date", style="dim", width=10)
+    table.add_column("Game", style="green", max_width=20)
+    table.add_column("Title", style="white", max_width=50)
+    table.add_column("Feed", style="dim", max_width=12)
+
+    from datetime import datetime
+    for n in news_items[:25]:
+        dt = datetime.fromtimestamp(n.get("date", 0))
+        date_str = dt.strftime("%m-%d %H:%M")
+        table.add_row(
+            date_str,
+            n.get("_game_name", "Unknown")[:20],
+            n.get("title", "")[:50],
+            n.get("feedlabel", n.get("feedname", ""))[:12],
+        )
+
+    console.print(table)
+
+    # AI summary of top news
+    from ai_agent import ask
+    console.print("\n[cyan]AI summarizing top news...[/cyan]")
+    headlines = "\n".join(
+        f"- [{n['_game_name']}] {n['title']} ({n.get('feedlabel', '')})"
+        for n in news_items[:15]
+    )
+    summary = ask(
+        [{"name": n["_game_name"], "playtime_forever": n.get("_playtime_h", 0) * 60} for n in news_items[:10]],
+        {},
+        f"以下是 Steam 最近的游戏新闻头条，请用3-5句话总结最重要的动态：\n\n{headlines}",
+    )
+    console.print(Panel(Markdown(summary), title="AI Summary", border_style="magenta"))
 
 
 if __name__ == "__main__":
